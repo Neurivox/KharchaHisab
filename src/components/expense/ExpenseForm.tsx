@@ -62,6 +62,7 @@ type ExpenseFormValues = z.infer<typeof expenseSchema>
 
 interface ExpenseFormProps {
   initial?: Expense
+  defaultDate?: Date
   onSubmit: (data: ExpenseInsert) => Promise<void>
   onCancel?: () => void
   uploadReceipt?: (file: File) => Promise<string | null>
@@ -69,6 +70,7 @@ interface ExpenseFormProps {
 
 export function ExpenseForm({
   initial,
+  defaultDate,
   onSubmit,
   onCancel,
   uploadReceipt,
@@ -87,7 +89,7 @@ export function ExpenseForm({
       expense_type: initial?.expense_type ?? "NEED",
       transaction_date: initial
         ? new Date(initial.transaction_date)
-        : new Date(),
+        : (defaultDate ?? new Date()),
       merchant: initial?.merchant ?? "",
       notes: initial?.notes ?? "",
       tags: initial?.tags?.join(", ") ?? "",
@@ -332,6 +334,7 @@ export function ExpenseForm({
                 <PopoverTrigger asChild>
                   <FormControl>
                     <Button
+                      type="button"
                       variant="outline"
                       className={cn(
                         "w-full pl-3 text-left font-normal",
