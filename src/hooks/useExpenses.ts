@@ -17,6 +17,14 @@ function saveLocal(expenses: Expense[]) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(expenses))
 }
 
+export function getLocalExpenseCount(): number {
+  return loadLocal().length
+}
+
+export function clearLocalExpenses() {
+  localStorage.removeItem(STORAGE_KEY)
+}
+
 function applyFilters(expenses: Expense[], filters?: ExpenseFilters): Expense[] {
   if (!filters) return expenses
 
@@ -168,6 +176,27 @@ export function useExpenses(filters?: ExpenseFilters) {
     return data.publicUrl
   }
 
+  const syncLocalToSupabase = async (): Promise<number> => {
+    if (!isSupabaseConfigured || !supabase) {
+      throw new Error("Supabase is not configured")
+    }
+
+    const local = loadLocal()
+    if (local.length === 0) return 0
+
+    const rows = local.map(({ id: _id, created_at: _c, updated_at: _u, ...row }) => ({
+      ...row,
+      tags: row.tags ?? [],
+    }))
+
+    const { error: insertError } = await supabase.from("expenses").insert(rows)
+    if (insertError) throw insertError
+
+    clearLocalExpenses()
+    await fetchExpenses()
+    return local.length
+  }
+
   return {
     expenses,
     loading,
@@ -178,6 +207,7 @@ export function useExpenses(filters?: ExpenseFilters) {
     updateExpense,
     deleteExpense,
     uploadReceipt,
+    syncLocalToSupabase,
   }
 }
 

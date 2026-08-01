@@ -1,4 +1,4 @@
-import { format, isToday, isYesterday, parseISO } from "date-fns"
+import { format, isToday, isValid, isYesterday, parseISO } from "date-fns"
 
 const inrFormatter = new Intl.NumberFormat("en-IN", {
   style: "currency",
@@ -19,6 +19,13 @@ export function formatDateGroup(dateStr: string): string {
   if (isToday(date)) return "Today"
   if (isYesterday(date)) return "Yesterday"
   return format(date, "d MMM yyyy")
+}
+
+/** Parse ?date=YYYY-MM-DD from add-expense links */
+export function parseExpenseDateParam(value: string | null): Date | undefined {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return undefined
+  const parsed = parseISO(value)
+  return isValid(parsed) ? parsed : undefined
 }
 
 export function toDateInputValue(date: Date): string {
