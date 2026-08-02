@@ -8,6 +8,8 @@ export type PaymentMode =
 
 export type ExpenseType = "NEED" | "WANT" | "SAVING"
 
+export type TransactionKind = "expense" | "income" | "transfer"
+
 export interface Expense {
   id: string
   amount: number
@@ -15,6 +17,7 @@ export interface Expense {
   payment_mode: PaymentMode
   category: string
   expense_type: ExpenseType
+  transaction_kind: TransactionKind
   transaction_date: string
   merchant: string | null
   notes: string | null
@@ -37,6 +40,19 @@ export interface ExpenseFilters {
   category?: string
   payment_mode?: PaymentMode
   expense_type?: ExpenseType
+  transaction_kind?: TransactionKind
   date_from?: string
   date_to?: string
+}
+
+export interface ExpenseSummary {
+  count: number
+  totalInflow: number
+  totalOutflow: number
+  net: number
+  spent: number
+  saved: number
+  income: number
+  transfers: number
+  byType: Record<ExpenseType, number>
 }

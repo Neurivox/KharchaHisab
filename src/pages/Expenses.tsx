@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/dialog"
 import { Header } from "@/components/layout/Header"
 import { ExpenseFiltersBar } from "@/components/expense/ExpenseFilters"
+import { FilterSummary } from "@/components/expense/FilterSummary"
 import { ExpenseList } from "@/components/expense/ExpenseList"
 import { ExpenseForm } from "@/components/expense/ExpenseForm"
 import { useExpenses } from "@/hooks/useExpenses"
@@ -47,8 +48,9 @@ export function ExpensesPage() {
     <>
       <Header title="All Expenses" subtitle={`${expenses.length} transactions`} />
 
-      <main className="space-y-4 px-4 py-4 pb-nav">
+      <main className="space-y-3 px-4 py-4 pb-nav">
         <ExpenseFiltersBar filters={filters} onChange={setFilters} />
+        <FilterSummary expenses={expenses} filters={filters} />
 
         {error ? (
           <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
@@ -57,9 +59,9 @@ export function ExpensesPage() {
         ) : null}
 
         {loading ? (
-          <div className="space-y-3">
+          <div className="space-y-2">
             {[1, 2, 3, 4].map((i) => (
-              <div key={i} className="h-20 animate-pulse rounded-xl bg-muted" />
+              <div key={i} className="h-14 animate-pulse rounded-lg bg-muted" />
             ))}
           </div>
         ) : (
