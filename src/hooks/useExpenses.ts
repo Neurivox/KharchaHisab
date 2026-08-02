@@ -1,13 +1,23 @@
 import { useCallback, useEffect, useState } from "react"
+import { resolveCategoryDefaults } from "@/lib/categories"
+import { getDefaultTransactionKind } from "@/lib/constants"
 import { isSupabaseConfigured, supabase } from "@/lib/supabase"
 import type { Expense, ExpenseFilters, ExpenseInsert } from "@/types/expense"
 
 const STORAGE_KEY = "expense_tracker_expenses"
 
+function normalizeExpense(raw: Expense): Expense {
+  return {
+    ...raw,
+    transaction_kind:
+      raw.transaction_kind ?? getDefaultTransactionKind(raw.category),
+  }
+}
+
 function loadLocal(): Expense[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
-    return raw ? (JSON.parse(raw) as Expense[]) : []
+    return raw ? (JSON.parse(raw) as Expense[]).map(normalizeExpense) : []
   } catch {
     return []
   }
@@ -37,10 +47,23 @@ function applyFilters(expenses: Expense[], filters?: ExpenseFilters): Expense[] 
     if (filters.category && e.category !== filters.category) return false
     if (filters.payment_mode && e.payment_mode !== filters.payment_mode) return false
     if (filters.expense_type && e.expense_type !== filters.expense_type) return false
+    if (filters.transaction_kind && e.transaction_kind !== filters.transaction_kind) {
+      return false
+    }
     if (filters.date_from && e.transaction_date < filters.date_from) return false
     if (filters.date_to && e.transaction_date > filters.date_to) return false
     return true
   })
+}
+
+function withKindDefaults(input: ExpenseInsert): ExpenseInsert {
+  const defaults = resolveCategoryDefaults(input.category)
+  return {
+    ...input,
+    transaction_kind:
+      input.transaction_kind ?? defaults.defaultKind,
+    expense_type: input.expense_type ?? defaults.defaultType,
+  }
 }
 
 export function useExpenses(filters?: ExpenseFilters) {
@@ -63,6 +86,9 @@ export function useExpenses(filters?: ExpenseFilters) {
         if (filters?.category) query = query.eq("category", filters.category)
         if (filters?.payment_mode) query = query.eq("payment_mode", filters.payment_mode)
         if (filters?.expense_type) query = query.eq("expense_type", filters.expense_type)
+        if (filters?.transaction_kind) {
+          query = query.eq("transaction_kind", filters.transaction_kind)
+        }
         if (filters?.date_from) query = query.gte("transaction_date", filters.date_from)
         if (filters?.date_to) query = query.lte("transaction_date", filters.date_to)
 
@@ -70,7 +96,7 @@ export function useExpenses(filters?: ExpenseFilters) {
 
         if (fetchError) throw fetchError
 
-        let result = (data ?? []) as Expense[]
+        let result = (data ?? []).map((row) => normalizeExpense(row as Expense))
         if (filters?.search) {
           result = applyFilters(result, { search: filters.search })
         }
@@ -84,34 +110,43 @@ export function useExpenses(filters?: ExpenseFilters) {
     } finally {
       setLoading(false)
     }
-  }, [filters?.category, filters?.payment_mode, filters?.expense_type, filters?.date_from, filters?.date_to, filters?.search])
+  }, [
+    filters?.category,
+    filters?.payment_mode,
+    filters?.expense_type,
+    filters?.transaction_kind,
+    filters?.date_from,
+    filters?.date_to,
+    filters?.search,
+  ])
 
   useEffect(() => {
     void fetchExpenses()
   }, [fetchExpenses])
 
   const addExpense = async (input: ExpenseInsert): Promise<Expense | null> => {
+    const payload = withKindDefaults(input)
     const now = new Date().toISOString()
 
     if (isSupabaseConfigured && supabase) {
       const { data, error: insertError } = await supabase
         .from("expenses")
-        .insert(input)
+        .insert(payload)
         .select()
         .single()
 
       if (insertError) throw insertError
       await fetchExpenses()
-      return data as Expense
+      return normalizeExpense(data as Expense)
     }
 
     const expense: Expense = {
       id: crypto.randomUUID(),
-      ...input,
-      merchant: input.merchant ?? null,
-      notes: input.notes ?? null,
-      tags: input.tags ?? null,
-      receipt_url: input.receipt_url ?? null,
+      ...payload,
+      merchant: payload.merchant ?? null,
+      notes: payload.notes ?? null,
+      tags: payload.tags ?? null,
+      receipt_url: payload.receipt_url ?? null,
       created_at: now,
       updated_at: now,
     }
@@ -125,10 +160,19 @@ export function useExpenses(filters?: ExpenseFilters) {
     id: string,
     input: Partial<ExpenseInsert>
   ): Promise<void> => {
+    let payload: Partial<ExpenseInsert> = { ...input }
+    if (input.category) {
+      const defaults = resolveCategoryDefaults(input.category)
+      payload = {
+        ...payload,
+        transaction_kind: input.transaction_kind ?? defaults.defaultKind,
+      }
+    }
+
     if (isSupabaseConfigured && supabase) {
       const { error: updateError } = await supabase
         .from("expenses")
-        .update(input)
+        .update(payload)
         .eq("id", id)
 
       if (updateError) throw updateError
@@ -137,7 +181,13 @@ export function useExpenses(filters?: ExpenseFilters) {
     }
 
     const updated = loadLocal().map((e) =>
-      e.id === id ? { ...e, ...input, updated_at: new Date().toISOString() } : e
+      e.id === id
+        ? normalizeExpense({
+            ...e,
+            ...payload,
+            updated_at: new Date().toISOString(),
+          } as Expense)
+        : e
     )
     saveLocal(updated)
     setExpenses(applyFilters(updated, filters))
@@ -187,6 +237,7 @@ export function useExpenses(filters?: ExpenseFilters) {
     const rows = local.map(({ id: _id, created_at: _c, updated_at: _u, ...row }) => ({
       ...row,
       tags: row.tags ?? [],
+      transaction_kind: row.transaction_kind ?? getDefaultTransactionKind(row.category),
     }))
 
     const { error: insertError } = await supabase.from("expenses").insert(rows)

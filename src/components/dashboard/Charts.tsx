@@ -12,6 +12,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { CHART_COLORS } from "@/lib/constants"
 import { formatINR } from "@/lib/format"
+import { resolveTransactionKind } from "@/lib/transactions"
 import type { Expense, ExpenseType, PaymentMode } from "@/types/expense"
 
 interface DashboardChartsProps {
@@ -35,14 +36,16 @@ function CustomTooltip({
 }
 
 export function DashboardCharts({ expenses }: DashboardChartsProps) {
+  const spending = expenses.filter((e) => resolveTransactionKind(e) === "expense")
+
   const byType = (["NEED", "WANT", "SAVING"] as ExpenseType[]).map((type) => ({
     name: type,
-    value: expenses
+    value: spending
       .filter((e) => e.expense_type === type)
       .reduce((s, e) => s + Number(e.amount), 0),
   })).filter((d) => d.value > 0)
 
-  const categoryMap = expenses.reduce<Record<string, number>>((acc, e) => {
+  const categoryMap = spending.reduce<Record<string, number>>((acc, e) => {
     acc[e.category] = (acc[e.category] ?? 0) + Number(e.amount)
     return acc
   }, {})
@@ -52,7 +55,7 @@ export function DashboardCharts({ expenses }: DashboardChartsProps) {
     .sort((a, b) => b.value - a.value)
     .slice(0, 6)
 
-  const paymentMap = expenses.reduce<Record<PaymentMode, number>>(
+  const paymentMap = spending.reduce<Record<PaymentMode, number>>(
     (acc, e) => {
       acc[e.payment_mode] = (acc[e.payment_mode] ?? 0) + Number(e.amount)
       return acc

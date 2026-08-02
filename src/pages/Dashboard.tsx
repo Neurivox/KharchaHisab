@@ -7,11 +7,13 @@ import { SummaryCards } from "@/components/dashboard/SummaryCards"
 import { DashboardCharts } from "@/components/dashboard/Charts"
 import { ExpenseList } from "@/components/expense/ExpenseList"
 import { filterExpensesByMonth, useExpenses } from "@/hooks/useExpenses"
+import { useOpeningBalance } from "@/hooks/useOpeningBalance"
 import { getMonthLabel } from "@/lib/format"
 
 export function DashboardPage() {
   const [month, setMonth] = useState(() => new Date())
   const { expenses, loading, error } = useExpenses()
+  const { openingBalance } = useOpeningBalance(month)
 
   const monthExpenses = useMemo(
     () => filterExpensesByMonth(expenses, month),
@@ -41,7 +43,7 @@ export function DashboardPage() {
         }
       />
 
-      <main className="space-y-6 px-4 py-4 pb-nav">
+      <main className="space-y-5 px-4 py-4 pb-nav">
         {error ? (
           <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
             {error}
@@ -56,15 +58,18 @@ export function DashboardPage() {
           </div>
         ) : (
           <>
-            <SummaryCards expenses={monthExpenses} />
+            <SummaryCards
+              expenses={monthExpenses}
+              openingBalance={openingBalance}
+            />
             <DashboardCharts expenses={monthExpenses} />
 
             <section>
-              <div className="mb-3 flex items-center justify-between">
-                <h2 className="font-semibold">Recent transactions</h2>
+              <div className="mb-2 flex items-center justify-between">
+                <h2 className="text-sm font-semibold">Recent</h2>
                 <Link
                   to="/expenses"
-                  className="text-sm text-primary hover:underline"
+                  className="text-xs text-primary hover:underline"
                 >
                   View all
                 </Link>
@@ -72,6 +77,7 @@ export function DashboardPage() {
               <ExpenseList
                 expenses={recent}
                 emptyMessage="No expenses this month yet."
+                dateHeadersLinkToAdd={false}
               />
             </section>
           </>

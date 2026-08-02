@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
@@ -28,14 +28,17 @@ import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import {
-  CATEGORIES,
+  addCustomCategory,
+  getAllCategories,
+  resolveCategoryDefaults,
+} from "@/lib/categories"
+import {
   EXPENSE_TYPES,
   EXPENSE_TYPE_COLORS,
-  getDefaultExpenseType,
   PAYMENT_MODES,
 } from "@/lib/constants"
 import { toDateInputValue } from "@/lib/format"
-import type { Expense, ExpenseInsert } from "@/types/expense"
+import type { Expense, ExpenseInsert, ExpenseType, TransactionKind } from "@/types/expense"
 import { cn } from "@/lib/utils"
 
 const expenseSchema = z.object({
@@ -51,6 +54,7 @@ const expenseSchema = z.object({
   ]),
   category: z.string().min(1, "Category is required"),
   expense_type: z.enum(["NEED", "WANT", "SAVING"]),
+  transaction_kind: z.enum(["expense", "income", "transfer"]),
   transaction_date: z.date(),
   merchant: z.string().optional(),
   notes: z.string().optional(),
@@ -60,9 +64,31 @@ const expenseSchema = z.object({
 
 type ExpenseFormValues = z.infer<typeof expenseSchema>
 
+const QUICK_TEMPLATES: {
+  label: string
+  category: string
+  description: string
+  payment_mode: ExpenseInsert["payment_mode"]
+}[] = [
+  { label: "Salary", category: "Salary", description: "Monthly salary", payment_mode: "Net Banking" },
+  {
+    label: "CC Bill",
+    category: "Credit Card Bill Payment",
+    description: "Credit card bill payment",
+    payment_mode: "Net Banking",
+  },
+  {
+    label: "Save in A/C",
+    category: "Normal Saving (In Account)",
+    description: "Saved in account",
+    payment_mode: "UPI",
+  },
+]
+
 interface ExpenseFormProps {
   initial?: Expense
   defaultDate?: Date
+  defaultCategory?: string
   onSubmit: (data: ExpenseInsert) => Promise<void>
   onCancel?: () => void
   uploadReceipt?: (file: File) => Promise<string | null>
@@ -71,13 +97,20 @@ interface ExpenseFormProps {
 export function ExpenseForm({
   initial,
   defaultDate,
+  defaultCategory,
   onSubmit,
   onCancel,
   uploadReceipt,
 }: ExpenseFormProps) {
   const [submitting, setSubmitting] = useState(false)
   const [customCategory, setCustomCategory] = useState("")
+  const [customGroup, setCustomGroup] = useState("Other")
+  const [customType, setCustomType] = useState<ExpenseType>("WANT")
+  const [customKind, setCustomKind] = useState<TransactionKind>("expense")
   const [showCustomCategory, setShowCustomCategory] = useState(false)
+
+  const startCategory = defaultCategory ?? initial?.category ?? "Groceries"
+  const startDefaults = resolveCategoryDefaults(startCategory)
 
   const form = useForm<ExpenseFormValues>({
     resolver: zodResolver(expenseSchema),
@@ -85,8 +118,10 @@ export function ExpenseForm({
       amount: initial ? Number(initial.amount) : undefined,
       description: initial?.description ?? "",
       payment_mode: initial?.payment_mode ?? "UPI",
-      category: initial?.category ?? "Groceries",
-      expense_type: initial?.expense_type ?? "NEED",
+      category: startCategory,
+      expense_type: initial?.expense_type ?? startDefaults.defaultType,
+      transaction_kind:
+        initial?.transaction_kind ?? startDefaults.defaultKind,
       transaction_date: initial
         ? new Date(initial.transaction_date)
         : (defaultDate ?? new Date()),
@@ -98,12 +133,27 @@ export function ExpenseForm({
   })
 
   const watchCategory = form.watch("category")
+  const watchKind = form.watch("transaction_kind")
 
   useEffect(() => {
     if (!initial && watchCategory) {
-      form.setValue("expense_type", getDefaultExpenseType(watchCategory))
+      const defaults = resolveCategoryDefaults(watchCategory)
+      form.setValue("expense_type", defaults.defaultType)
+      form.setValue("transaction_kind", defaults.defaultKind)
     }
   }, [watchCategory, initial, form])
+
+  const allCategories = useMemo(() => getAllCategories(), [showCustomCategory])
+
+  const groupedCategories = useMemo(
+    () =>
+      allCategories.reduce<Record<string, typeof allCategories>>((acc, cat) => {
+        if (!acc[cat.group]) acc[cat.group] = []
+        acc[cat.group].push(cat)
+        return acc
+      }, {}),
+    [allCategories]
+  )
 
   const handleSubmit = async (values: ExpenseFormValues) => {
     setSubmitting(true)
@@ -131,6 +181,7 @@ export function ExpenseForm({
         payment_mode: values.payment_mode,
         category: values.category,
         expense_type: values.expense_type,
+        transaction_kind: values.transaction_kind,
         transaction_date: toDateInputValue(values.transaction_date),
         merchant: values.merchant || null,
         notes: values.notes || null,
@@ -148,26 +199,52 @@ export function ExpenseForm({
     }
   }
 
-  const addCustomCategory = () => {
+  const addCustomCategoryEntry = () => {
     if (!customCategory.trim()) return
-    form.setValue("category", customCategory.trim())
-    form.setValue("expense_type", getDefaultExpenseType(customCategory.trim()))
+    const label = customCategory.trim()
+    addCustomCategory({
+      label,
+      defaultType: customType,
+      defaultKind: customKind,
+      group: customGroup,
+    })
+    form.setValue("category", label)
+    form.setValue("expense_type", customType)
+    form.setValue("transaction_kind", customKind)
     setShowCustomCategory(false)
     setCustomCategory("")
+    toast.success(`Category "${label}" saved`)
   }
 
-  const groupedCategories = CATEGORIES.reduce<Record<string, typeof CATEGORIES>>(
-    (acc, cat) => {
-      if (!acc[cat.group]) acc[cat.group] = []
-      acc[cat.group].push(cat)
-      return acc
-    },
-    {}
-  )
+  const applyTemplate = (template: (typeof QUICK_TEMPLATES)[number]) => {
+    const defaults = resolveCategoryDefaults(template.category)
+    form.setValue("category", template.category)
+    form.setValue("description", template.description)
+    form.setValue("payment_mode", template.payment_mode)
+    form.setValue("expense_type", defaults.defaultType)
+    form.setValue("transaction_kind", defaults.defaultKind)
+  }
 
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
+        {!initial ? (
+          <div className="flex flex-wrap gap-2">
+            {QUICK_TEMPLATES.map((template) => (
+              <Button
+                key={template.label}
+                type="button"
+                variant="secondary"
+                size="sm"
+                className="h-8 rounded-full text-xs"
+                onClick={() => applyTemplate(template)}
+              >
+                {template.label}
+              </Button>
+            ))}
+          </div>
+        ) : null}
+
         <FormField
           control={form.control}
           name="amount"
@@ -210,7 +287,7 @@ export function ExpenseForm({
             <FormItem>
               <FormLabel>Merchant (optional)</FormLabel>
               <FormControl>
-                <Input placeholder="Blinkit, Amazon, landlord..." {...field} />
+                <Input placeholder="Blinkit, Amazon, employer..." {...field} />
               </FormControl>
               <FormMessage />
             </FormItem>
@@ -279,15 +356,70 @@ export function ExpenseForm({
                   + Add custom category
                 </Button>
               ) : (
-                <div className="flex gap-2">
+                <div className="space-y-2 rounded-lg border p-3">
                   <Input
-                    placeholder="Custom category"
+                    placeholder="Category name"
                     value={customCategory}
                     onChange={(e) => setCustomCategory(e.target.value)}
                   />
-                  <Button type="button" size="sm" onClick={addCustomCategory}>
-                    Add
-                  </Button>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Select value={customGroup} onValueChange={setCustomGroup}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {["Essentials", "Lifestyle", "Financial", "Income", "Other"].map(
+                          (g) => (
+                            <SelectItem key={g} value={g}>
+                              {g}
+                            </SelectItem>
+                          )
+                        )}
+                      </SelectContent>
+                    </Select>
+                    <Select
+                      value={customKind}
+                      onValueChange={(v) => setCustomKind(v as TransactionKind)}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="expense">Expense</SelectItem>
+                        <SelectItem value="income">Income</SelectItem>
+                        <SelectItem value="transfer">Transfer</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {EXPENSE_TYPES.map((type) => (
+                      <Badge
+                        key={type}
+                        className={cn(
+                          "cursor-pointer text-xs",
+                          customType === type
+                            ? EXPENSE_TYPE_COLORS[type]
+                            : "bg-muted text-muted-foreground"
+                        )}
+                        onClick={() => setCustomType(type)}
+                      >
+                        {type}
+                      </Badge>
+                    ))}
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setShowCustomCategory(false)}
+                    >
+                      Cancel
+                    </Button>
+                    <Button type="button" size="sm" onClick={addCustomCategoryEntry}>
+                      Save category
+                    </Button>
+                  </div>
                 </div>
               )}
               <FormMessage />
@@ -295,34 +427,40 @@ export function ExpenseForm({
           )}
         />
 
-        <FormField
-          control={form.control}
-          name="expense_type"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Type of Expense</FormLabel>
-              <FormControl>
-                <div className="flex flex-wrap gap-2">
-                  {EXPENSE_TYPES.map((type) => (
-                    <Badge
-                      key={type}
-                      className={cn(
-                        "cursor-pointer px-3 py-1.5 text-sm",
-                        field.value === type
-                          ? EXPENSE_TYPE_COLORS[type]
-                          : "bg-muted text-muted-foreground"
-                      )}
-                      onClick={() => field.onChange(type)}
-                    >
-                      {type}
-                    </Badge>
-                  ))}
-                </div>
-              </FormControl>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
+        {watchKind !== "income" ? (
+          <FormField
+            control={form.control}
+            name="expense_type"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Type of Expense</FormLabel>
+                <FormControl>
+                  <div className="flex flex-wrap gap-2">
+                    {EXPENSE_TYPES.map((type) => (
+                      <Badge
+                        key={type}
+                        className={cn(
+                          "cursor-pointer px-3 py-1.5 text-sm",
+                          field.value === type
+                            ? EXPENSE_TYPE_COLORS[type]
+                            : "bg-muted text-muted-foreground"
+                        )}
+                        onClick={() => field.onChange(type)}
+                      >
+                        {type}
+                      </Badge>
+                    ))}
+                  </div>
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        ) : (
+          <div className="rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800 dark:border-green-900 dark:bg-green-950/40 dark:text-green-300">
+            Income entry — adds to your balance
+          </div>
+        )}
 
         <FormField
           control={form.control}
@@ -367,9 +505,9 @@ export function ExpenseForm({
           render={({ field }) => (
             <FormItem className="flex items-center justify-between rounded-lg border p-3">
               <div>
-                <FormLabel>Recurring expense</FormLabel>
+                <FormLabel>Recurring</FormLabel>
                 <p className="text-xs text-muted-foreground">
-                  Rent, EMI, SIP, subscriptions
+                  Rent, EMI, SIP, salary, subscriptions
                 </p>
               </div>
               <FormControl>
@@ -434,7 +572,9 @@ export function ExpenseForm({
                 Saving...
               </>
             ) : initial ? (
-              "Update Expense"
+              "Update"
+            ) : watchKind === "income" ? (
+              "Add Income"
             ) : (
               "Add Expense"
             )}
